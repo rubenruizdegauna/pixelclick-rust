@@ -3,6 +3,8 @@
 
 use core::fmt::Display;
 
+mod digits;
+
 // #############################################################
 // Basic dependencies
 // #############################################################
@@ -35,11 +37,7 @@ use embassy_time::{Duration, Timer};
 // #############################################################
 // Library abstracting over the addressable LED panel for ESP.
 use esp_hal_smartled::{smartLedBuffer, SmartLedsAdapter};
-use smart_leds::{
-    brightness, gamma,
-    hsv::{hsv2rgb, Hsv},
-    SmartLedsWrite,
-};
+use smart_leds::{brightness, gamma, hsv::{hsv2rgb, Hsv}, RGB8, SmartLedsWrite};
 // #############################################################
 
 // #############################################################
@@ -48,6 +46,7 @@ use smart_leds::{
 // Logger for using the logging macros from `log`.
 use esp_println::logger::init_logger;
 use log::info;
+use crate::digits::DIGITS;
 // #############################################################
 
 // TODO: Ignore this for now!
@@ -148,25 +147,33 @@ async fn led_panel(mut a_led: SmartLedsAdapter<Channel<Blocking, 0>, 865>) {
 
     info!("Iterating over the rainbow!");
     // The task runs indefinitely
+    let mut second = 0;
     loop {
-        // Iterate over the rainbow!
-        for hue in 0..=255 {
-            color.hue = hue;
-            // Convert from the HSV color space (where we can easily transition from one
-            // color to the other) to the RGB color space that we can then send to the LED.
+        // all white
+        data = white_background();
 
-            // The syntax used below initializes the 36 items of the array to the same value.
-            data = [hsv2rgb(color); 36];
-            // When sending to the LED, we do a gamma correction first (see smart_leds
-            // documentation for details) and then limit the brightness to 15 out of 255 so
-            // that the output it's not too bright.
-            a_led
-                .write(brightness(gamma(data.iter().cloned()), 15))
-                .unwrap();
+        // get the digit
+        let digit = DIGITS[second];
+        for pixel in 0..36 {
+            color = Hsv { hue: digit[pixel] * 255, sat: digit[pixel] * 255, val: 255 };
+            data[pixel] = hsv2rgb(color);
+        }
+        a_led
+            .write(brightness(gamma(data.iter().cloned()), 15))
+            .unwrap();
 
-            Timer::after(Duration::from_millis(15)).await;
+        Timer::after(Duration::from_secs(1)).await;
+
+        second += 1;
+        if second == 10 {
+            second = 0;
         }
     }
+}
+
+fn white_background() -> [RGB8; 36] {
+    let color = Hsv { hue: 0, sat: 0, val: 255 };
+    [hsv2rgb(color); 36]
 }
 
 // TODO how to do interrupts with async?
@@ -195,16 +202,19 @@ impl From<Input<'static, Gpio18>> for Button {
         Self::Btn1(value)
     }
 }
+
 impl From<Input<'static, Gpio17>> for Button {
     fn from(value: Input<'static, Gpio17>) -> Self {
         Self::Btn2(value)
     }
 }
+
 impl From<Input<'static, Gpio4>> for Button {
     fn from(value: Input<'static, Gpio4>) -> Self {
         Self::Btn3(value)
     }
 }
+
 impl From<Input<'static, Gpio0>> for Button {
     fn from(value: Input<'static, Gpio0>) -> Self {
         Self::Btn4(value)
