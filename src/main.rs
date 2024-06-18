@@ -28,6 +28,8 @@ use esp_hal::{
 // #############################################################
 // Async executor
 use embassy_executor::Spawner;
+use embassy_sync::mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 // Async time APIs
 use embassy_time::{Duration, Timer};
 // #############################################################
@@ -52,6 +54,8 @@ use crate::digits::DIGITS;
 // TODO: Ignore this for now!
 // mod front_leds;
 // mod pixel_click; // A sort of framework for the board, not yet ready
+
+static SHARED_MUTEX: Mutex<CriticalSectionRawMutex, u8> = Mutex::new(255);
 
 // We had `no_main` put above. We mark this function as the entry point for the async
 // runtime. In a way similar to #[tokio::main]
@@ -98,6 +102,7 @@ async fn main(spawner: Spawner) -> ! {
     // Our PixelClick has 36 LEDs, so we pass 36 to the below macro to initialize them all.
     let rmt_buffer = smartLedBuffer!(36);
     let a_led = SmartLedsAdapter::new(rmt.channel0, io.pins.gpio5, rmt_buffer, &clocks);
+
 
     // Spawn the two tasks! See below for the implementations.
     spawner.spawn(back_leds(front_red, front_blue)).ok();
@@ -154,10 +159,14 @@ async fn led_panel(mut a_led: SmartLedsAdapter<Channel<Blocking, 0>, 865>) {
 
         // get the digit
         let digit = DIGITS[second];
+        let mut lock = SHARED_MUTEX.lock().await;
+        info!("the lock value: {}",*lock);
         for pixel in 0..36 {
-            color = Hsv { hue: digit[pixel] * 255, sat: digit[pixel] * 255, val: 255 };
+            color = Hsv { hue: digit[pixel] * *lock, sat: digit[pixel] * 255, val: 255 };
             data[pixel] = hsv2rgb(color);
         }
+        drop(lock);
+
         a_led
             .write(brightness(gamma(data.iter().cloned()), 15))
             .unwrap();
@@ -243,8 +252,27 @@ async fn button(btn: Button) {
     // The task runs indefinitely
     loop {
         if btn.is_low() {
-            info!("BUTTON {btn} WAS PRESSED!")
+            info!("BUTTON {btn} WAS PRESSED!");
+            match btn {
+                Button::Btn1(_) => {
+                    let mut lock = SHARED_MUTEX.lock().await;
+                    *lock = 90;
+                }
+                Button::Btn2(_) => {
+                    let mut lock = SHARED_MUTEX.lock().await;
+                    *lock = 120;
+                }
+                Button::Btn3(_) => {
+                    info!("fucking button 3...")
+                    // let mut lock = SHARED_MUTEX.lock().await;
+                    // *lock = 200;
+                }
+                Button::Btn4(_) => {
+                    let mut lock = SHARED_MUTEX.lock().await;
+                    *lock = 190;
+                }
+            }
         }
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after(Duration::from_millis(500)).await;
     }
 }
